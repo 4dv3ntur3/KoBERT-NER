@@ -172,87 +172,155 @@ def predict(pred_config):
 
     all_slot_label_mask = None
     preds = None
-
+    sms = None
     for batch in tqdm(data_loader, desc="Predicting"):
         batch = tuple(t.to(device) for t in batch)
+
         with torch.no_grad():
             inputs = {"input_ids": batch[0],
                       "attention_mask": batch[1],
-                      "labels": None}
+                      "labels": None} # label이 None이므로 
             if args.model_type != "distilkobert":
                 inputs["token_type_ids"] = batch[2]
+
             outputs = model(**inputs)
-            logits = outputs[0]
+
+            print(len(outputs)) # 1
+
+            logits = outputs[0] # loss? 
+            # print(logits.size()) # 3, 50, 28 (B, S, num_classes)
+            # print(logits.detach().cpu().numpy())
+
+            # logits = linear output
+            sm = torch.nn.functional.softmax(logits, dim=-1)
+            sm = sm.detach().cpu().numpy()
+            # print(sm)
+            # print(sm.size()) # 3, 50, 28
 
             if preds is None:
                 preds = logits.detach().cpu().numpy()
                 all_slot_label_mask = batch[3].detach().cpu().numpy()
+                sms = sm
             else:
                 preds = np.append(preds, logits.detach().cpu().numpy(), axis=0)
                 all_slot_label_mask = np.append(all_slot_label_mask, batch[3].detach().cpu().numpy(), axis=0)
+                sms = np.append(sms, axis=0)
 
     preds = np.argmax(preds, axis=2)
 
     slot_label_map = {i: label for i, label in enumerate(label_lst)}
     preds_list = [[] for _ in range(preds.shape[0])]
 
+    sms_list = [[] for _ in range(sms.shape[0])]
+
     for i in range(preds.shape[0]):
         for j in range(preds.shape[1]):
             if all_slot_label_mask[i, j] != pad_token_label_id:
                 preds_list[i].append(slot_label_map[preds[i][j]])
-    
-    print(preds_list)
-    quit()
+                sms_list[i].append(sms[i][j])
 
-    ################# per token
-    # Write to output file
+    ######### 정답 후보 태그 3개까지 출력 
+    for k in range(len(sms_list)):
+
+      temp = sms_list[k] #19 (Number of tokens)
+
+      # print(temp)
+      # print(len(temp))
+      # print("=======================")
+
+      for tidx in range(len(temp)):
+        
+        real_tok = all_input_tokens[k][tidx]
+        tok = temp[tidx]
+        ranked = np.argsort(tok)
+        largest_indices = ranked[::-1][:3]
+
+        print("rank for", real_tok, " started")
+
+        for i in range(len(largest_indices)):
+          idx = largest_indices[i]
+          # print(idx)
+          print(slot_label_map[idx], ": ", tok[idx])
+
+        print("rank for", real_tok, " ended\n\n")
+
     with open(pred_config.output_file, "w", encoding="utf-8") as f:
-
-        for words, preds in zip(all_input_tokens, preds_list):
-
-            print(words)
-            print(preds)
-
-            print("==============================")
-
+        for words, preds in zip(all_input_tokens, preds_list): # 한 문장 
+            
             line = ""
-            result = ""
-
+            
+            word_end = False
             pii_word = ""
-            for word, pred in zip(words, preds): #per token
+            
+            for i, (word, pred) in enumerate(zip(words, preds)): # token별
+                
+                if i < len(preds)-1:
+                    
+                    if word_end == True:
+                        pii_word = ""
+                    
+                    
+                    after_word = words[i+1]
+                    after_pred = preds[i+1]
+                    
+                    word = word.strip('#').strip()
+                    
+                    pii_word += word
+                    
+                    # print(pii_word)
+                    
+                    # 다음 단어에 #이 포함되어 있다면 이어지는 단어 
+                    if '#' in after_word:
 
-                print(word)
-                print(pred)
+                        # 뒤 토큰과 한 단어이지만 무의미하므로 따로 쓴다
+                        if after_pred == 'O':
+                            
+                            if pred == 'O':
+                                # 둘 다 Other인데 한 단어이다
+                                word_end = False
+                                
+                            else:
+                                # 그러면 그냥 혼자 적기
+                                line = line + "[{}:{}] ".format(pii_word, pred)
+                            
+                                word_end = True
+                            
 
-                ahead_tag = ""
-
-                if '#' in word:
-
-                  word = word.strip('#').strip()
-
-                  if pred == 'O':
-                    line = line + word + " " # 그냥 씀 
-
-                  else: # 앞 단어에 붙여야 하는 경우
-
-                    if preds == ahead_tag:
-                      pii_word = pii_word + word
-                      # line = line + pii_word
-
+                            
+                        # 뒤 토큰과 한 단어이고, 유의미해서 같이 적어야 함
+                        else: 
+                            word_end = False
+                            
                     else:
-                      pii_word = ""
-
-
+                        word_end = True
+                        
+                        if pred == 'O':
+                            line = line + pii_word + " "
+                        
+                        else:
+                            line = line + "[{}:{}] ".format(pii_word, pred)
+                
+                # 마지막 단어 
                 else:
-                  if pred == 'O':
-                      line = line + word + " "
-                      
-                  else:
-                      pii_word = pii_word + word
-                      line = line + "[{}:{}] ".format(pii_word, pred)
+                    
+                    # print(line)
+                    if '#' in word:
 
-                ahead_tag = preds
-
+                        word = word.strip('#').strip()
+                        
+                        if pred == 'O':
+                            line = line + word + " "
+                            
+                        else:
+                            pii_word += word
+                            line = line + "[{}:{}] ".format(pii_word, pred)
+                            
+                    else:
+                        if pred == 'O':
+                            line = line + word + " "
+                        else:
+                            line = line + "[{}:{}] ".format(word, pred) 
+                
             f.write("{}\n".format(line.strip()))
 
     logger.info("Prediction Done!")

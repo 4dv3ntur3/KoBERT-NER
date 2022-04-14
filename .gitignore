@@ -134,3 +134,6 @@ preds/
 
 sample_pred_out.txt
 cached*
+
+#################### virtual env
+electra/
