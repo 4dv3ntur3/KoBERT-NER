@@ -32,7 +32,7 @@ MODEL_PATH_MAP = {
     'distilkobert': 'monologg/distilkobert',
     'bert': 'bert-base-multilingual-cased',
     'kobert-lm': 'monologg/kobert-lm',
-    'koelectra-base': 'monologg/koelectra-base-discriminator',
+    'koelectra-base': 'monologg/koelectra-base-v3-discriminator',
     'koelectra-small': 'monologg/koelectra-small-discriminator',
 }
 

@@ -77,18 +77,22 @@ class NaverNerProcessor(object):
                 lines.append(line.strip())
             return lines
 
+    ############## tsv file load ##########
     def _create_examples(self, dataset, set_type):
         """Creates examples for the training and dev sets."""
         examples = []
         for (i, data) in enumerate(dataset):
             words, labels = data.split('\t')
-            words = words.split()
-            labels = labels.split()
+
+            # strip [CLS], [SEP] & label(-100)
+            words = words.strip("[CLS]""[SEP]").strip().split()
+            labels = labels.strip("-100").strip().split()
+
             guid = "%s-%s" % (set_type, i)
 
             labels_idx = []
             for label in labels:
-                labels_idx.append(self.labels_lst.index(label) if label in self.labels_lst else self.labels_lst.index("UNK"))
+              labels_idx.append(self.labels_lst.index(label) if label in self.labels_lst else self.labels_lst.index("UNK"))
 
             assert len(words) == len(labels_idx)
 
@@ -136,16 +140,24 @@ def convert_examples_to_features(examples, max_seq_len, tokenizer,
         if ex_index % 5000 == 0:
             logger.info("Writing example %d of %d" % (ex_index, len(examples)))
 
-        # Tokenize word by word (for NER)
+        ############ without tokenizing
         tokens = []
         label_ids = []
         for word, slot_label in zip(example.words, example.labels):
-            word_tokens = tokenizer.tokenize(word)
+            word_tokens = word.split(" ")
+            # word_tokens = tokenizer.tokenize(word)
             if not word_tokens:
+                print(word)
+                print(word_tokens)
                 word_tokens = [unk_token]  # For handling the bad-encoded word
             tokens.extend(word_tokens)
-            # Use the real label id for the first token of the word, and padding ids for the remaining tokens
-            label_ids.extend([int(slot_label)] + [pad_token_label_id] * (len(word_tokens) - 1))
+
+            # use label in from label file directly
+            label_ids.extend([slot_label])
+
+            # length check 
+            assert len(tokens) == len(label_ids)
+
 
         # Account for [CLS] and [SEP]
         special_tokens_count = 2
